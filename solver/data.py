@@ -14,7 +14,7 @@ class ConstraintBlock(BaseModel):
 
 class PricingConstraints(BaseModel):
     objective: Literal["rpi", "icr"] = "rpi"
-    overall: Optional[ConstraintBlock] = None
+    overall: Optional[ConstraintBlock] = ConstraintBlock()
     per_bin: Dict[str, ConstraintBlock] = {}
 
 
