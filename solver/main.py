@@ -40,7 +40,11 @@ class PricingStrategyOptimizer:
             for b in range(self.dm.n_bins):
                 for i in range(self.dm.n_client):
                     for j in range(self.dm.n_courier):
-                        comps.append(self.dm.distance_weights[b] * self.dm.completion_rate[b][j] * self.x[b, i, j])
+                        comps.append(
+                            self.dm.distance_weights[b] *
+                            self.dm.completion_rate[b][i][j] *
+                            self.x[b, i, j]
+                        )
 
             self.solver.Add(sum(comps) >= min_comp)
 
@@ -180,11 +184,8 @@ class PricingStrategyOptimizer:
             ]
 
         if metric_type == "completion":
-            # completion_rate[b][j] → expand to matrix[i][j]
-            return [
-                [self.dm.completion_rate[b][j] for j in range(self.dm.n_courier)]
-                for i in range(self.dm.n_client)
-            ]
+            # already correct shape now
+            return self.dm.completion_rate[b]
 
         if metric_type == "take_rate":
             # already matrix [i][j]
@@ -239,11 +240,11 @@ class PricingStrategyOptimizer:
                         overall_conv_opt += w * self.dm.client_conversion[b][i]
                         overall_completed_opt += w * self.dm.icr[b][i][j]
                         overall_take_rate_opt += w * self.dm.take_rate[b][i][j]
-                        overall_completion_rate_opt += w * self.dm.completion_rate[b][j]
+                        overall_completion_rate_opt += w * self.dm.completion_rate[b][i][j]
 
                         # per-bin metrics
                         take_rate_opt_per_bin[b] = self.dm.take_rate[b][i][j]
-                        completion_rate_opt_per_bin[b] = self.dm.completion_rate[b][j]
+                        completion_rate_opt_per_bin[b] = self.dm.completion_rate[b][i][j]
                         completed_conv_opt_per_bin[b] = self.dm.icr[b][i][j]
 
         df = pd.DataFrame(rows, columns=[
@@ -282,10 +283,10 @@ class PricingStrategyOptimizer:
             overall_conv_def += w * self.dm.client_conversion[b][zero_i]
             overall_completed_def += w * self.dm.icr[b][zero_i][zero_j]
             overall_take_rate_def += w * self.dm.take_rate[b][zero_i][zero_j]
-            overall_completion_rate_def += w * self.dm.completion_rate[b][zero_j]
+            overall_completion_rate_def += w * self.dm.completion_rate[b][zero_i][zero_j]
 
             take_rate_def_per_bin[b] = self.dm.take_rate[b][zero_i][zero_j]
-            completion_rate_def_per_bin[b] = self.dm.completion_rate[b][zero_j]
+            completion_rate_def_per_bin[b] = self.dm.completion_rate[b][zero_i][zero_j]
             completed_conv_def_per_bin[b] = self.dm.icr[b][zero_i][zero_j]
 
         # ----------------------------------
