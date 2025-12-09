@@ -85,34 +85,26 @@ with tab_opt:
 
         if oc_min_conv:
             overall_kwargs["min_conversion_rate"] = st.number_input(
-                "min_conversion_rate:",
-                value=0.0, min_value=0.0, max_value=1.0
+                "min_conversion_rate:", value=0.0, min_value=0.0, max_value=1.0
             )
         if oc_min_comp:
             overall_kwargs["min_completion_rate"] = st.number_input(
-                "min_completion_rate:",
-                value=0.0, min_value=0.0, max_value=1.0
+                "min_completion_rate:", value=0.0, min_value=0.0, max_value=1.0
             )
         if oc_min_take:
             overall_kwargs["min_take_rate"] = st.number_input(
-                "min_take_rate:",
-                value=0.0, min_value=0.0, max_value=1.0
+                "min_take_rate:", value=0.0, min_value=0.0, max_value=1.0
             )
         if oc_max_take:
             overall_kwargs["max_take_rate"] = st.number_input(
-                "max_take_rate:",
-                value=1.0, min_value=0.0, max_value=1.0
+                "max_take_rate:", value=1.0, min_value=0.0, max_value=1.0
             )
         if oc_min_icr:
             overall_kwargs["min_icr"] = st.number_input(
-                "min_icr:",
-                value=0.0, min_value=0.0, max_value=1.0
+                "min_icr:", value=0.0, min_value=0.0, max_value=1.0
             )
         if oc_min_rpi:
-            overall_kwargs["min_rpi"] = st.number_input(
-                "min_rpi:",
-                value=0.0
-            )
+            overall_kwargs["min_rpi"] = st.number_input("min_rpi:", value=0.0)
 
         if overall_kwargs:
             overall_block = ConstraintBlock(**overall_kwargs)
@@ -121,14 +113,12 @@ with tab_opt:
 
     # ---- 3. Per-bin constraints ----
     bin_names = dm.distance_vals
-
     per_bin_constraints = {}
     bin_tabs = st.tabs(bin_names)
 
     for bin_tab, bin_name in zip(bin_tabs, bin_names):
         with bin_tab:
             st.write(f"Constraints for **{bin_name}**")
-            st.write("Leave fields disabled for None (i.e., no constraint).")
 
             cb_min_conv = st.checkbox(f"{bin_name}: min_conversion_rate", key=f"{bin_name}_mc")
             cb_min_comp = st.checkbox(f"{bin_name}: min_completion_rate", key=f"{bin_name}_mp")
@@ -165,7 +155,7 @@ with tab_opt:
             if kwargs_bin:
                 per_bin_constraints[bin_name] = ConstraintBlock(**kwargs_bin)
 
-    # ---- 4. Build final constraints ----
+    # ---- 4. Build constraints ----
     constraints = PricingConstraints(
         objective=objective[:3],
         overall=overall_block,
@@ -184,7 +174,6 @@ with tab_opt:
     if st.button("Find Optimal Strategy"):
         try:
             st.write("Running solver... please wait.")
-
             solver = PricingStrategyOptimizer(dm, constraints)
             ok = solver.solve()
 
@@ -194,7 +183,6 @@ with tab_opt:
 
             df_opt, stats = solver.prepare_solution()
 
-            # Save results in session state
             st.session_state["opt_df"] = df_opt
             st.session_state["opt_stats"] = stats
 
@@ -204,15 +192,31 @@ with tab_opt:
             st.error(f"Solver error: {e}")
 
     # ----------------------------------------------------------
-    # Restore previous results if exist
+    # Restore previous results + DOWNLOAD buttons
     # ----------------------------------------------------------
     if st.session_state["opt_df"] is not None:
-        st.write("### Previous Optimal Strategy")
+        st.write("### Optimal Strategy")
         st.dataframe(st.session_state["opt_df"])
 
+        opt_csv = st.session_state["opt_df"].to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download Optimal Strategy (CSV)",
+            opt_csv,
+            file_name="optimal_strategy.csv",
+            mime="text/csv"
+        )
+
     if st.session_state["opt_stats"] is not None:
-        st.write("### Previous Stats Comparison")
+        st.write("### Stats: Optimal vs Default")
         st.dataframe(st.session_state["opt_stats"])
+
+        stats_csv = st.session_state["opt_stats"].to_csv().encode("utf-8")
+        st.download_button(
+            "Download Stats (CSV)",
+            stats_csv,
+            file_name="strategy_stats.csv",
+            mime="text/csv"
+        )
 
 
 
@@ -223,9 +227,8 @@ with tab_opt:
 with tab_manual:
 
     st.write("### Manual Strategy Search")
-    st.write("Select client and courier diffs for each distance bin.")
 
-    # Load previous manual table if exists
+    # Load previous manual table
     if st.session_state["manual_inputs_df"] is not None:
         manual_df = st.session_state["manual_inputs_df"]
     else:
@@ -246,25 +249,21 @@ with tab_manual:
             ),
             "Courier diff": st.column_config.SelectboxColumn(
                 "Courier diff",
-                options=[float(i) for i in dm.courier_diffs]
+                options=[float(v) for v in dm.courier_diffs]
             ),
         }
     )
 
-    # Persist edited table
     st.session_state["manual_inputs_df"] = edited_df
 
     if st.button("Evaluate Manual Strategy"):
-
         try:
             manual_selection = {
                 row["Distance"]: (row["Client diff"], row["Courier diff"])
                 for _, row in edited_df.iterrows()
             }
 
-            default_strategy = {
-                dist: (0.0, 0.0) for dist in dm.distance_vals
-            }
+            default_strategy = {dist: (0.0, 0.0) for dist in dm.distance_vals}
 
             manual_stats = dm.calculate_strategy(manual_selection)
             default_stats = dm.calculate_strategy(default_strategy)
@@ -274,7 +273,6 @@ with tab_manual:
                 "Default Strategy": default_stats
             })
 
-            # Save results
             st.session_state["manual_selection"] = manual_selection
             st.session_state["manual_compare_df"] = df_compare
 
@@ -283,7 +281,15 @@ with tab_manual:
         except Exception as e:
             st.error(f"Error evaluating manual strategy: {e}")
 
-    # Restore previous results
+    # Restore previous results + DOWNLOAD button
     if st.session_state["manual_compare_df"] is not None:
-        st.write("### Previous Manual Comparison")
+        st.write("### Manual vs Default")
         st.dataframe(st.session_state["manual_compare_df"])
+
+        csv = st.session_state["manual_compare_df"].to_csv().encode("utf-8")
+        st.download_button(
+            "Download Manual Strategy Comparison (CSV)",
+            csv,
+            file_name="manual_vs_default.csv",
+            mime="text/csv"
+        )
