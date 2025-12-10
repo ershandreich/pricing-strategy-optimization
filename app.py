@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 from solver import PricingStrategyOptimizer
-from solver.data import DataManager, PricingConstraints, ConstraintBlock
+from solver.data import DataManager, RawDataProcessor, PricingConstraints, ConstraintBlock
 
 st.title("Pricing Strategy Optimization")
 
@@ -25,24 +25,44 @@ uploaded_file = st.file_uploader("Choose file", type=["xlsx"])
 dm = None
 
 if uploaded_file is not None:
-    st.write("### File is uploaded. Reading data...")
+
+    st.write("### File is uploaded. Validating and processing...")
 
     try:
-        df = pd.read_excel(uploaded_file)
-        st.dataframe(df)
+        # Run RawDataProcessor
+        processor = RawDataProcessor(uploaded_file)
+        df_merged = processor.process()
 
+        st.success("File structure is valid. Data successfully merged.")
+
+        st.write("### Merged scenario table")
+        st.dataframe(df_merged)
+
+        st.session_state["df_raw"] = uploaded_file
+        st.session_state["df_merged"] = df_merged
+
+        # Initialize DataManager
         try:
-            dm = DataManager(df)
-            st.success("Data is valid")
+            dm = DataManager(df_merged)
+            st.session_state["dm"] = dm
+            st.success("DataManager initialized successfully.")
         except Exception as e:
             st.error(f"Error creating DataManager: {e}")
 
-    except Exception as e:
-        st.error(f"Error reading file: {e}")
 
-if dm is None:
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
+
+else:
+    # no file uploaded yet
+    st.info("Please upload an Excel file with Client data, Courier data, and Weights sheets.")
+    st.stop()
+
+# If file was uploaded but DataManager failed to initialize
+if uploaded_file is not None and dm is None:
     st.info("Please upload a valid file to continue.")
     st.stop()
+
 
 
 # ----------------------------------------------------------
@@ -247,7 +267,7 @@ with tab_manual:
         column_config={
             "Client diff": st.column_config.SelectboxColumn(
                 "Client diff",
-                options=dm.client_diffs
+                options=[float(i) for i in dm.client_diffs]
             ),
             "Courier diff": st.column_config.SelectboxColumn(
                 "Courier diff",

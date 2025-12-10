@@ -18,11 +18,197 @@ class PricingConstraints(BaseModel):
     per_bin: Dict[str, ConstraintBlock] = {}
 
 
+class RawDataProcessor:
+    REQUIRED_SHEETS = ["Client data", "Courier data", "Weights"]
+
+    CLIENT_COLUMNS = [
+        "Distance bin",
+        "Client price diff",
+        "Demand conversion rate",
+        "Client payment"
+    ]
+
+    COURIER_COLUMNS = [
+        "Distance bin",
+        "Courier price diff",
+        "Completion rate",
+        "Courier payment"
+    ]
+
+    WEIGHTS_COLUMNS = [
+        "Distance bin",
+        "Weight"
+    ]
+
+    def __init__(self, file):
+        self.file = file
+
+        self.df_client = None
+        self.df_courier = None
+        self.df_weights = None
+
+        self.df_merged = None
+
+    # -----------------------------
+    # PUBLIC API
+    # -----------------------------
+    def process(self):
+        self._load()
+        self._validate()
+        self._merge()
+        return self.df_merged
+
+    # -----------------------------
+    # INTERNAL STEPS
+    # -----------------------------
+    def _load(self):
+        try:
+            xls = pd.ExcelFile(self.file)
+        except Exception as e:
+            raise ValueError(f"Cannot read Excel file: {e}")
+
+        # check required sheets
+        missing = [s for s in self.REQUIRED_SHEETS if s not in xls.sheet_names]
+        if missing:
+            raise ValueError(f"Missing required sheets: {missing}")
+
+        # load each sheet
+        self.df_client = pd.read_excel(self.file, sheet_name="Client data")
+        self.df_courier = pd.read_excel(self.file, sheet_name="Courier data")
+        self.df_weights = pd.read_excel(self.file, sheet_name="Weights")
+
+    # -----------------------------
+    # VALIDATION
+    # -----------------------------
+    def _validate(self):
+        self._validate_columns()
+        self._validate_distance_bins()
+        self._validate_price_diff_combinations()
+        self._validate_weights()
+
+    def _validate_columns(self):
+        # client
+        missing_client = [c for c in self.CLIENT_COLUMNS if c not in self.df_client.columns]
+        if missing_client:
+            raise ValueError(f"Client data missing columns: {missing_client}")
+
+        # courier
+        missing_courier = [c for c in self.COURIER_COLUMNS if c not in self.df_courier.columns]
+        if missing_courier:
+            raise ValueError(f"Courier data missing columns: {missing_courier}")
+
+        # weights
+        missing_weights = [c for c in self.WEIGHTS_COLUMNS if c not in self.df_weights.columns]
+        if missing_weights:
+            raise ValueError(f"Weights data missing columns: {missing_weights}")
+
+    def _validate_distance_bins(self):
+        client_bins = set(self.df_client["Distance bin"])
+        courier_bins = set(self.df_courier["Distance bin"])
+        weight_bins = set(self.df_weights["Distance bin"])
+
+        # courier must contain all client bins
+        missing = client_bins - courier_bins
+        if missing:
+            raise ValueError(f"Courier data missing distance bins: {missing}")
+
+        # weights must exactly match client bins
+        if client_bins != weight_bins:
+            raise ValueError(
+                f"Weights distance bins do not match client bins.\n"
+                f"Client: {client_bins}\nWeights: {weight_bins}"
+            )
+
+    def _validate_price_diff_combinations(self):
+        # client diffs
+        client_counts = (
+            self.df_client.groupby("Distance bin")["Client price diff"].nunique()
+        )
+
+        if client_counts.nunique() != 1:
+            raise ValueError(
+                f"Client data has inconsistent number of price diffs across distance bins: {client_counts.to_dict()}"
+            )
+
+        # courier diffs
+        courier_counts = (
+            self.df_courier.groupby("Distance bin")["Courier price diff"].nunique()
+        )
+
+        if courier_counts.nunique() != 1:
+            raise ValueError(
+                f"Courier data has inconsistent number of price diffs across distance bins: {courier_counts.to_dict()}"
+            )
+
+    def _validate_weights(self):
+        # sum = 1
+        wsum = self.df_weights["Weight"].sum()
+        if abs(wsum - 1.0) > 1e-6:
+            raise ValueError(f"Weights must sum to 1. Current sum: {wsum}")
+
+        # all unique
+        if self.df_weights["Distance bin"].duplicated().any():
+            raise ValueError("Weights table contains duplicate distance bins.")
+
+    def _merge(self):
+        """
+        Build scenario table:
+        - For each distance bin combine every client diff with every courier diff
+        - Add weight
+        - Compute Take rate, ICR, RPI
+        """
+
+        rows = []
+
+        # dictionary for quick weight lookup
+        weight_map = dict(zip(self.df_weights["Distance bin"], self.df_weights["Weight"]))
+
+        # iterate by distance bin
+        for dbin in self.df_client["Distance bin"].unique():
+
+            dfc = self.df_client[self.df_client["Distance bin"] == dbin]
+            dfk = self.df_courier[self.df_courier["Distance bin"] == dbin]
+            w = weight_map[dbin]
+
+            # cartesian product of client and courier diffs
+            for _, c_row in dfc.iterrows():
+                for _, k_row in dfk.iterrows():
+                    client_payment = float(c_row["Client payment"])
+                    courier_payment = float(k_row["Courier payment"])
+
+                    demand_conv = float(c_row["Demand conversion rate"])
+                    completion_rate = float(k_row["Completion rate"])
+
+                    # --- compute metrics ---
+                    take_rate = (client_payment - courier_payment) / client_payment
+                    icr = demand_conv * completion_rate
+                    rpi = client_payment * take_rate * icr
+
+                    rows.append({
+                        "Distance bin": dbin,
+                        "Client price diff": c_row["Client price diff"],
+                        "Courier price diff": k_row["Courier price diff"],
+
+                        "Demand conversion rate": demand_conv,
+                        "Client payment": client_payment,
+                        "Completion rate": completion_rate,
+                        "Courier payment": courier_payment,
+                        "Weight": w,
+
+                        # computed metrics
+                        "Take rate": take_rate,
+                        "ICR": icr,
+                        "RPI": rpi,
+                    })
+
+        self.df_merged = pd.DataFrame(rows)
+
+
 class DataManager:
     def __init__(self, df: pd.DataFrame):
         self.df = df.copy()
 
-        self.distance_vals = list(self.df["Distance"].unique())
+        self.distance_vals = list(self.df["Distance bin"].unique())
         self.client_diffs = sorted(self.df["Client price diff"].unique())
         self.courier_diffs = sorted(self.df["Courier price diff"].unique())
 
@@ -66,20 +252,16 @@ class DataManager:
 
     def _fill_matrix(self):
         for _, row in self.df.iterrows():
-            b = self.distance_to_idx[row["Distance"]]
+            b = self.distance_to_idx[row["Distance bin"]]
             i = self.client_diff_to_idx[row["Client price diff"]]
             j = self.courier_diff_to_idx[row["Courier price diff"]]
 
-            self.rpi[b][i][j] = row["Revenue per intent"]
+            self.rpi[b][i][j] = row["RPI"]
+            self.icr[b][i][j] = row["ICR"]
             self.take_rate[b][i][j] = row["Take rate"]
             self.completion_rate[b][i][j] = row["Completion rate"]
+            self.client_conversion[b][i] = row["Demand conversion rate"]
 
-            conv = row["Placed orders per intent"]
-            if self.client_conversion[b][i] is None:
-                self.client_conversion[b][i] = conv
-
-            comp = row["Completed orders per intent"]
-            self.icr[b][i][j] = comp
 
     def _validate_full_matrix(self):
         for b in range(self.n_bins):
@@ -99,8 +281,8 @@ class DataManager:
     def _extract_weights(self):
         weights = []
         for d in self.distance_vals:
-            subset = self.df[self.df["Distance"] == d]
-            weight = subset["Distance share"].iloc[0]
+            subset = self.df[self.df["Distance bin"] == d]
+            weight = subset["Weight"].iloc[0]
             weights.append(weight)
         s = sum(weights)
         if abs(s - 1) > 1e-6:
