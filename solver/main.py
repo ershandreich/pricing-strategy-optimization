@@ -233,7 +233,6 @@ class PricingStrategyOptimizer:
                             raw_rev * w
                         ])
 
-                        # weighted metrics
                         total_rpi_opt += w * self.dm.rpi[b][i][j]
                         total_icr_opt += w * self.dm.icr[b][i][j]
 
@@ -242,7 +241,6 @@ class PricingStrategyOptimizer:
                         overall_take_rate_opt += w * self.dm.take_rate[b][i][j]
                         overall_completion_rate_opt += w * self.dm.completion_rate[b][i][j]
 
-                        # per-bin metrics
                         take_rate_opt_per_bin[b] = self.dm.take_rate[b][i][j]
                         completion_rate_opt_per_bin[b] = self.dm.completion_rate[b][i][j]
                         completed_conv_opt_per_bin[b] = self.dm.icr[b][i][j]
@@ -269,7 +267,6 @@ class PricingStrategyOptimizer:
         overall_take_rate_def = 0.0
         overall_completion_rate_def = 0.0
 
-        # per-bin default metrics
         take_rate_def_per_bin = [None] * self.dm.n_bins
         completion_rate_def_per_bin = [None] * self.dm.n_bins
         completed_conv_def_per_bin = [None] * self.dm.n_bins
@@ -319,10 +316,8 @@ class PricingStrategyOptimizer:
         ])
 
         # ----------------------------------
-        # Add per-bin metrics in metric-first grouping
+        # Add per-bin metrics
         # ----------------------------------
-
-        # 1. Take rate per bin
         for b in range(self.dm.n_bins):
             dist_label = self.dm.distance_vals[b]
             stats.loc[f"Take rate - {dist_label}"] = [
@@ -330,7 +325,6 @@ class PricingStrategyOptimizer:
                 take_rate_def_per_bin[b]
             ]
 
-        # 2. Completion rate per bin
         for b in range(self.dm.n_bins):
             dist_label = self.dm.distance_vals[b]
             stats.loc[f"Completion rate - {dist_label}"] = [
@@ -338,12 +332,24 @@ class PricingStrategyOptimizer:
                 completion_rate_def_per_bin[b]
             ]
 
-        # 3. Intent→Completed rate per bin
         for b in range(self.dm.n_bins):
             dist_label = self.dm.distance_vals[b]
             stats.loc[f"Intent→Completed rate - {dist_label}"] = [
                 completed_conv_opt_per_bin[b],
                 completed_conv_def_per_bin[b]
             ]
+
+        # ----------------------------------
+        # Add percentage change: (opt - def) / def * 100
+        # ----------------------------------
+        pct = (stats["Optimal Strategy"] - stats["Default Strategy"]) / stats["Default Strategy"] * 100
+        pct = pct.replace([float("inf"), -float("inf")], None)
+
+        def fmt(x):
+            if x is None or pd.isna(x):
+                return None
+            return f"{'+' if x > 0 else ''}{x:.2f}%"
+
+        stats["% Change"] = pct.apply(fmt)
 
         return df, stats

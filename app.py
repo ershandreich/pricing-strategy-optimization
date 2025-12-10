@@ -111,49 +111,51 @@ with tab_opt:
         else:
             overall_block = ConstraintBlock()
 
-    # ---- 3. Per-bin constraints ----
-    bin_names = dm.distance_vals
+    # ---- 3. Per-bin constraints (same for all distance bins) ----
     per_bin_constraints = {}
-    bin_tabs = st.tabs(bin_names)
 
-    for bin_tab, bin_name in zip(bin_tabs, bin_names):
-        with bin_tab:
-            st.write(f"Constraints for **{bin_name}**")
+    with st.expander("Per-bin constraints (applied to all distance bins equally, optional)"):
+        st.write(
+            "If you enable a constraint here, it will be applied with the same value "
+            "to every distance bin."
+        )
 
-            cb_min_conv = st.checkbox(f"{bin_name}: min_conversion_rate", key=f"{bin_name}_mc")
-            cb_min_comp = st.checkbox(f"{bin_name}: min_completion_rate", key=f"{bin_name}_mp")
-            cb_min_take = st.checkbox(f"{bin_name}: min_take_rate", key=f"{bin_name}_mt")
-            cb_max_take = st.checkbox(f"{bin_name}: max_take_rate", key=f"{bin_name}_xt")
+        pb_min_conv = st.checkbox("Enable per-bin min_conversion_rate")
+        pb_min_comp = st.checkbox("Enable per-bin min_completion_rate")
+        pb_min_take = st.checkbox("Enable per-bin min_take_rate (commission)")
+        pb_max_take = st.checkbox("Enable per-bin max_take_rate (commission)")
 
-            kwargs_bin = {}
+        per_bin_kwargs = {}
 
-            if cb_min_conv:
-                kwargs_bin["min_conversion_rate"] = st.number_input(
-                    f"{bin_name} min_conversion_rate",
-                    value=0.0, min_value=0.0, max_value=1.0,
-                    key=f"{bin_name}_minconv_val"
-                )
-            if cb_min_comp:
-                kwargs_bin["min_completion_rate"] = st.number_input(
-                    f"{bin_name} min_completion_rate",
-                    value=0.0, min_value=0.0, max_value=1.0,
-                    key=f"{bin_name}_mincomp_val"
-                )
-            if cb_min_take:
-                kwargs_bin["min_take_rate"] = st.number_input(
-                    f"{bin_name} min_take_rate",
-                    value=0.0, min_value=0.0, max_value=1.0,
-                    key=f"{bin_name}_mintake_val"
-                )
-            if cb_max_take:
-                kwargs_bin["max_take_rate"] = st.number_input(
-                    f"{bin_name} max_take_rate",
-                    value=1.0, min_value=0.0, max_value=1.0,
-                    key=f"{bin_name}_maxtake_val"
-                )
+        if pb_min_conv:
+            per_bin_kwargs["min_conversion_rate"] = st.number_input(
+                "per-bin min_conversion_rate",
+                value=0.0, min_value=0.0, max_value=1.0,
+                key="perbin_minconv_val"
+            )
+        if pb_min_comp:
+            per_bin_kwargs["min_completion_rate"] = st.number_input(
+                "per-bin min_completion_rate",
+                value=0.0, min_value=0.0, max_value=1.0,
+                key="perbin_mincomp_val"
+            )
+        if pb_min_take:
+            per_bin_kwargs["min_take_rate"] = st.number_input(
+                "per-bin min_take_rate",
+                value=0.0, min_value=0.0, max_value=1.0,
+                key="perbin_mintake_val"
+            )
+        if pb_max_take:
+            per_bin_kwargs["max_take_rate"] = st.number_input(
+                "per-bin max_take_rate",
+                value=1.0, min_value=0.0, max_value=1.0,
+                key="perbin_maxtake_val"
+            )
 
-            if kwargs_bin:
-                per_bin_constraints[bin_name] = ConstraintBlock(**kwargs_bin)
+        if per_bin_kwargs:
+            # Apply same ConstraintBlock to every distance bin
+            for bin_name in dm.distance_vals:
+                per_bin_constraints[bin_name] = ConstraintBlock(**per_bin_kwargs)
 
     # ---- 4. Build constraints ----
     constraints = PricingConstraints(
@@ -268,11 +270,26 @@ with tab_manual:
             manual_stats = dm.calculate_strategy(manual_selection)
             default_stats = dm.calculate_strategy(default_strategy)
 
+            # --- Create dataframe ---
             df_compare = pd.DataFrame({
                 "Manual Strategy": manual_stats,
                 "Default Strategy": default_stats
             })
 
+            # --- Percentage Change ---
+            pct = (df_compare["Manual Strategy"] - df_compare["Default Strategy"]) \
+                  / df_compare["Default Strategy"] * 100
+
+            pct = pct.replace([float("inf"), -float("inf")], None)
+
+            def fmt(x):
+                if x is None or pd.isna(x):
+                    return None
+                return f"{'+' if x > 0 else ''}{x:.2f}%"
+
+            df_compare["% Change"] = pct.apply(fmt)
+
+            # Save to session
             st.session_state["manual_selection"] = manual_selection
             st.session_state["manual_compare_df"] = df_compare
 
