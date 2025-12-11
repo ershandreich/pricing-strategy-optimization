@@ -21,6 +21,10 @@ for key in [
 
 st.write("### Step 1. Upload Excel file with data")
 
+st.markdown("---")
+st.page_link("pages/1_how_to_prepare_input_file.py", label="How to prepare input file", icon="📘")
+st.markdown("---")
+
 uploaded_file = st.file_uploader("Choose file", type=["xlsx"])
 dm = None
 
