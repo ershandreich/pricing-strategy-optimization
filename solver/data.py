@@ -245,6 +245,16 @@ class DataManager:
             for _ in range(self.n_bins)
         ]
 
+        self.client_payment: List[List[List[Union[None, float]]]] = [
+            [[None] * self.n_courier for _ in range(self.n_client)]
+            for _ in range(self.n_bins)
+        ]
+
+        self.courier_payment: List[List[List[Union[None, float]]]] = [
+            [[None] * self.n_courier for _ in range(self.n_client)]
+            for _ in range(self.n_bins)
+        ]
+
         self._fill_matrix()
         self._validate_full_matrix()
 
@@ -261,22 +271,36 @@ class DataManager:
             self.take_rate[b][i][j] = row["Take rate"]
             self.completion_rate[b][i][j] = row["Completion rate"]
             self.client_conversion[b][i] = row["Demand conversion rate"]
-
+            self.client_payment[b][i][j] = row["Client payment"]
+            self.courier_payment[b][i][j] = row["Courier payment"]
 
     def _validate_full_matrix(self):
         for b in range(self.n_bins):
             for i in range(self.n_client):
+
                 if self.client_conversion[b][i] is None:
                     raise ValueError("Missing client conversion")
+
                 for j in range(self.n_courier):
+
                     if self.rpi[b][i][j] is None:
-                        raise ValueError("Missing revenue")
+                        raise ValueError("Missing revenue (RPI)")
+
+                    if self.icr[b][i][j] is None:
+                        raise ValueError("Missing ICR")
+
                     if self.take_rate[b][i][j] is None:
                         raise ValueError("Missing take rate")
-                    if self.icr[b][i][j] is None:
-                        raise ValueError("Missing completed conversion")
+
                     if self.completion_rate[b][i][j] is None:
                         raise ValueError("Missing completion rate")
+
+                    # NEW VALIDATIONS
+                    if self.client_payment[b][i][j] is None:
+                        raise ValueError("Missing client payment")
+
+                    if self.courier_payment[b][i][j] is None:
+                        raise ValueError("Missing courier payment")
 
     def _extract_weights(self):
         weights = []
@@ -284,36 +308,56 @@ class DataManager:
             subset = self.df[self.df["Distance bin"] == d]
             weight = subset["Weight"].iloc[0]
             weights.append(weight)
+
         s = sum(weights)
         if abs(s - 1) > 1e-6:
             weights = [w / s for w in weights]
+
         return weights
 
     def calculate_strategy(self, strategy: dict) -> pd.Series:
         """
         strategy: dict mapping distance value -> (client_diff_value, courier_diff_value)
-            Example:
-            {
-                "00 - 04 km": (0.0, 0.0),
-                "04 - 08 km": (+0.1, -0.1),
-                ...
-            }
-
-        Returns:
-            pd.Series with the same metrics layout as in solver.prepare_solution() stats table
+        Returns a Series with the same metrics layout as in prepare_solution() stats table.
         """
 
         total_rpi = 0.0
         total_icr = 0.0
         overall_conv = 0.0
-        overall_completed = 0.0
         overall_take_rate = 0.0
         overall_completion_rate = 0.0
 
-        # per-bin (optional to return, but useful)
-        take_rate_per_bin = {}
-        completion_rate_per_bin = {}
-        completed_conv_per_bin = {}
+        for b, dist in enumerate(self.distance_vals):
+            cdiff_val, kdiff_val = strategy[dist]
+            i = self.client_diff_to_idx[cdiff_val]
+            j = self.courier_diff_to_idx[kdiff_val]
+
+            w = self.distance_weights[b]
+
+            total_rpi += w * self.rpi[b][i][j]
+            total_icr += w * self.icr[b][i][j]
+            overall_conv += w * self.client_conversion[b][i]
+            overall_take_rate += w * self.take_rate[b][i][j]
+            overall_completion_rate += w * self.completion_rate[b][i][j]
+
+        data = {
+            "Total weighted revenue (RPI)": total_rpi,
+            "Total weighted intent→completed (ICR)": total_icr,
+            "Overall conversion rate": overall_conv,
+            "Overall take rate": overall_take_rate,
+            "Overall completion rate": overall_completion_rate,
+        }
+
+        return pd.Series(data)
+
+    def build_strategy_table(self, strategy: dict) -> pd.DataFrame:
+        """
+        Build a full strategy table (same format as Optimal Strategy table in prepare_solution),
+        given a mapping:
+            strategy = { distance_bin: (client_diff_value, courier_diff_value) }
+        """
+
+        rows = []
 
         for b, dist in enumerate(self.distance_vals):
             cdiff_val, kdiff_val = strategy[dist]
@@ -321,36 +365,39 @@ class DataManager:
             i = self.client_diff_to_idx[cdiff_val]
             j = self.courier_diff_to_idx[kdiff_val]
 
-            w = self.distance_weights[b]
+            rpi = self.rpi[b][i][j]
+            icr = self.icr[b][i][j]
+            conv = self.client_conversion[b][i]
+            compl = self.completion_rate[b][i][j]
+            take = self.take_rate[b][i][j]
+            client_pay = self.client_payment[b][i][j]
+            courier_pay = self.courier_payment[b][i][j]
 
-            # add weighted metrics
-            total_rpi += w * self.rpi[b][i][j]
-            total_icr += w * self.icr[b][i][j]
+            rows.append([
+                dist,
+                cdiff_val,
+                kdiff_val,
+                rpi,
+                icr,
+                conv,
+                compl,
+                take,
+                client_pay,
+                courier_pay
+            ])
 
-            overall_conv += w * self.client_conversion[b][i]
-            overall_completed += w * self.icr[b][i][j]
-            overall_take_rate += w * self.take_rate[b][i][j]
-            overall_completion_rate += w * self.completion_rate[b][i][j]
+        return pd.DataFrame(rows, columns=[
+            "Distance",
+            "Client price diff",
+            "Courier price diff",
+            "Revenue per intent",
+            "Intent to completed rate",
+            "Demand conversion rate",
+            "Completion rate",
+            "Take rate",
+            "Client payment",
+            "Courier payment"
+        ])
 
-            # per-bin detail
-            take_rate_per_bin[dist] = self.take_rate[b][i][j]
-            completion_rate_per_bin[dist] = self.completion_rate[b][i][j]
-            completed_conv_per_bin[dist] = self.icr[b][i][j]
 
-        # return a single long Series (same structure as stats in prepare_solution)
-        data = {
-            "Total weighted revenue (RPI)": total_rpi,
-            "Total weighted intent→completed (ICR)": total_icr,
-            "Overall conversion rate": overall_conv,
-            "Overall intent→completed rate": overall_completed,
-            "Overall take rate": overall_take_rate,
-            "Overall completion rate": overall_completion_rate,
-        }
 
-        # append per-bin metrics
-        for dist in self.distance_vals:
-            data[f"Take rate - {dist}"] = take_rate_per_bin[dist]
-            data[f"Completion rate - {dist}"] = completion_rate_per_bin[dist]
-            data[f"Intent→Completed rate - {dist}"] = completed_conv_per_bin[dist]
-
-        return pd.Series(data)

@@ -202,60 +202,65 @@ class PricingStrategyOptimizer:
         total_rpi_opt = 0.0
         total_icr_opt = 0.0
         overall_conv_opt = 0.0
-        overall_completed_opt = 0.0
         overall_take_rate_opt = 0.0
         overall_completion_rate_opt = 0.0
 
-        # per-bin optimal metrics
-        take_rate_opt_per_bin = [None] * self.dm.n_bins
-        completion_rate_opt_per_bin = [None] * self.dm.n_bins
-        completed_conv_opt_per_bin = [None] * self.dm.n_bins
-
         # ----------------------------------
-        # Optimal strategy metrics
+        # Optimal strategy rows
         # ----------------------------------
         for b in range(self.dm.n_bins):
             for i in range(self.dm.n_client):
                 for j in range(self.dm.n_courier):
+
                     if self.x[b, i, j].solution_value() > 0.5:
                         dist = self.dm.distance_vals[b]
                         cdiff = self.dm.client_diffs[i]
                         kdiff = self.dm.courier_diffs[j]
-                        raw_rev = self.dm.rpi[b][i][j]
+
+                        rpi = self.dm.rpi[b][i][j]
+                        icr = self.dm.icr[b][i][j]
+                        conv = self.dm.client_conversion[b][i]
+                        compl = self.dm.completion_rate[b][i][j]
+                        take = self.dm.take_rate[b][i][j]
+                        client_pay = self.dm.client_payment[b][i][j]
+                        courier_pay = self.dm.courier_payment[b][i][j]
+
                         w = self.dm.distance_weights[b]
 
                         rows.append([
                             dist,
                             cdiff,
                             kdiff,
-                            raw_rev,
-                            w,
-                            raw_rev * w
+                            rpi,
+                            icr,
+                            conv,
+                            compl,
+                            take,
+                            client_pay,
+                            courier_pay
                         ])
 
-                        total_rpi_opt += w * self.dm.rpi[b][i][j]
-                        total_icr_opt += w * self.dm.icr[b][i][j]
-
-                        overall_conv_opt += w * self.dm.client_conversion[b][i]
-                        overall_completed_opt += w * self.dm.icr[b][i][j]
-                        overall_take_rate_opt += w * self.dm.take_rate[b][i][j]
-                        overall_completion_rate_opt += w * self.dm.completion_rate[b][i][j]
-
-                        take_rate_opt_per_bin[b] = self.dm.take_rate[b][i][j]
-                        completion_rate_opt_per_bin[b] = self.dm.completion_rate[b][i][j]
-                        completed_conv_opt_per_bin[b] = self.dm.icr[b][i][j]
+                        total_rpi_opt += w * rpi
+                        total_icr_opt += w * icr
+                        overall_conv_opt += w * conv
+                        overall_take_rate_opt += w * take
+                        overall_completion_rate_opt += w * compl
 
         df = pd.DataFrame(rows, columns=[
             "Distance",
             "Client price diff",
             "Courier price diff",
             "Revenue per intent",
-            "Distance weight",
-            "Weighted revenue"
+            "Intent to completed rate",
+            "Demand conversion rate",
+            "Completion rate",
+            "Take rate",
+            "Client payment",
+            "Courier payment"
         ])
 
         # ----------------------------------
-        # Default strategy: CDiff=0, KDiff=0
+        # Default strategy (0,0)
         # ----------------------------------
         zero_i = self.dm.client_diff_to_idx[0]
         zero_j = self.dm.courier_diff_to_idx[0]
@@ -263,38 +268,32 @@ class PricingStrategyOptimizer:
         total_rpi_def = 0.0
         total_icr_def = 0.0
         overall_conv_def = 0.0
-        overall_completed_def = 0.0
         overall_take_rate_def = 0.0
         overall_completion_rate_def = 0.0
-
-        take_rate_def_per_bin = [None] * self.dm.n_bins
-        completion_rate_def_per_bin = [None] * self.dm.n_bins
-        completed_conv_def_per_bin = [None] * self.dm.n_bins
 
         for b in range(self.dm.n_bins):
             w = self.dm.distance_weights[b]
 
-            total_rpi_def += w * self.dm.rpi[b][zero_i][zero_j]
-            total_icr_def += w * self.dm.icr[b][zero_i][zero_j]
+            rpi_def = self.dm.rpi[b][zero_i][zero_j]
+            icr_def = self.dm.icr[b][zero_i][zero_j]
+            conv_def = self.dm.client_conversion[b][zero_i]
+            compl_def = self.dm.completion_rate[b][zero_i][zero_j]
+            take_def = self.dm.take_rate[b][zero_i][zero_j]
 
-            overall_conv_def += w * self.dm.client_conversion[b][zero_i]
-            overall_completed_def += w * self.dm.icr[b][zero_i][zero_j]
-            overall_take_rate_def += w * self.dm.take_rate[b][zero_i][zero_j]
-            overall_completion_rate_def += w * self.dm.completion_rate[b][zero_i][zero_j]
-
-            take_rate_def_per_bin[b] = self.dm.take_rate[b][zero_i][zero_j]
-            completion_rate_def_per_bin[b] = self.dm.completion_rate[b][zero_i][zero_j]
-            completed_conv_def_per_bin[b] = self.dm.icr[b][zero_i][zero_j]
+            total_rpi_def += w * rpi_def
+            total_icr_def += w * icr_def
+            overall_conv_def += w * conv_def
+            overall_take_rate_def += w * take_def
+            overall_completion_rate_def += w * compl_def
 
         # ----------------------------------
-        # Stats table
+        # Stats table (ONLY overall metrics)
         # ----------------------------------
         stats = pd.DataFrame({
             "Optimal Strategy": [
                 total_rpi_opt,
                 total_icr_opt,
                 overall_conv_opt,
-                overall_completed_opt,
                 overall_take_rate_opt,
                 overall_completion_rate_opt
             ],
@@ -302,7 +301,6 @@ class PricingStrategyOptimizer:
                 total_rpi_def,
                 total_icr_def,
                 overall_conv_def,
-                overall_completed_def,
                 overall_take_rate_def,
                 overall_completion_rate_def
             ]
@@ -310,37 +308,12 @@ class PricingStrategyOptimizer:
             "Total weighted revenue (RPI)",
             "Total weighted intent→completed (ICR)",
             "Overall conversion rate",
-            "Overall intent→completed rate",
             "Overall take rate",
             "Overall completion rate"
         ])
 
         # ----------------------------------
-        # Add per-bin metrics
-        # ----------------------------------
-        for b in range(self.dm.n_bins):
-            dist_label = self.dm.distance_vals[b]
-            stats.loc[f"Take rate - {dist_label}"] = [
-                take_rate_opt_per_bin[b],
-                take_rate_def_per_bin[b]
-            ]
-
-        for b in range(self.dm.n_bins):
-            dist_label = self.dm.distance_vals[b]
-            stats.loc[f"Completion rate - {dist_label}"] = [
-                completion_rate_opt_per_bin[b],
-                completion_rate_def_per_bin[b]
-            ]
-
-        for b in range(self.dm.n_bins):
-            dist_label = self.dm.distance_vals[b]
-            stats.loc[f"Intent→Completed rate - {dist_label}"] = [
-                completed_conv_opt_per_bin[b],
-                completed_conv_def_per_bin[b]
-            ]
-
-        # ----------------------------------
-        # Add percentage change: (opt - def) / def * 100
+        # Percentage change
         # ----------------------------------
         pct = (stats["Optimal Strategy"] - stats["Default Strategy"]) / stats["Default Strategy"] * 100
         pct = pct.replace([float("inf"), -float("inf")], None)
@@ -353,3 +326,5 @@ class PricingStrategyOptimizer:
         stats["% Change"] = pct.apply(fmt)
 
         return df, stats
+
+

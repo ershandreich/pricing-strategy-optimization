@@ -9,7 +9,7 @@ st.title("Pricing Strategy Optimization")
 # Initialize session variables if missing
 for key in [
     "opt_df", "opt_stats",
-    "manual_selection", "manual_compare_df", "manual_inputs_df"
+    "manual_selection", "manual_compare_df", "manual_inputs_df", "manual_strategy_df"
 ]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -46,6 +46,12 @@ if uploaded_file is not None:
             dm = DataManager(df_merged)
             st.session_state["dm"] = dm
             st.success("DataManager initialized successfully.")
+
+            st.write("### Default Strategy")
+            default_strategy = {dist: (0.0, 0.0) for dist in dm.distance_vals}
+            default_strategy_df = dm.build_strategy_table(default_strategy)
+            st.dataframe(default_strategy_df)
+
         except Exception as e:
             st.error(f"Error creating DataManager: {e}")
 
@@ -309,7 +315,12 @@ with tab_manual:
 
             df_compare["% Change"] = pct.apply(fmt)
 
+
+            # Manual strategy eval
+            manual_strategy_df = dm.build_strategy_table(manual_selection)
+
             # Save to session
+            st.session_state["manual_strategy_df"] = manual_strategy_df
             st.session_state["manual_selection"] = manual_selection
             st.session_state["manual_compare_df"] = df_compare
 
@@ -318,15 +329,30 @@ with tab_manual:
         except Exception as e:
             st.error(f"Error evaluating manual strategy: {e}")
 
+    if st.session_state["manual_strategy_df"] is not None:
+        st.write("### Manual Strategy")
+        st.dataframe(st.session_state["manual_strategy_df"])
+
+        strat_csv = st.session_state["manual_strategy_df"].to_csv().encode("utf-8")
+        st.download_button(
+            "Download Manual Strategy Evaluation (CSV)",
+            strat_csv,
+            file_name="manual_strategy.csv",
+            mime="text/csv"
+        )
+
     # Restore previous results + DOWNLOAD button
     if st.session_state["manual_compare_df"] is not None:
         st.write("### Manual vs Default")
         st.dataframe(st.session_state["manual_compare_df"])
 
-        csv = st.session_state["manual_compare_df"].to_csv().encode("utf-8")
+        comp_csv = st.session_state["manual_compare_df"].to_csv().encode("utf-8")
         st.download_button(
             "Download Manual Strategy Comparison (CSV)",
-            csv,
+            comp_csv,
             file_name="manual_vs_default.csv",
             mime="text/csv"
         )
+
+
+
