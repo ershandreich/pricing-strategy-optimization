@@ -6,6 +6,8 @@ from pydantic import BaseModel
 class ConstraintBlock(BaseModel):
     min_conversion_rate: Optional[float] = None
     min_completion_rate: Optional[float] = None
+    min_courier_earnings: Optional[float] = None
+    max_courier_earnings: Optional[float] = None
     min_take_rate: Optional[float] = None
     max_take_rate: Optional[float] = None
     min_rpi: Optional[float] = None
@@ -326,6 +328,7 @@ class DataManager:
         overall_conv = 0.0
         overall_take_rate = 0.0
         overall_completion_rate = 0.0
+        overall_courier_earnings = 0.0
 
         for b, dist in enumerate(self.distance_vals):
             cdiff_val, kdiff_val = strategy[dist]
@@ -339,6 +342,7 @@ class DataManager:
             overall_conv += w * self.client_conversion[b][i]
             overall_take_rate += w * self.take_rate[b][i][j]
             overall_completion_rate += w * self.completion_rate[b][i][j]
+            overall_courier_earnings += w * self.courier_payment[b][i][j]
 
         data = {
             "Total weighted revenue (RPI)": total_rpi,
@@ -346,6 +350,7 @@ class DataManager:
             "Overall conversion rate": overall_conv,
             "Overall take rate": overall_take_rate,
             "Overall completion rate": overall_completion_rate,
+            "Overall courier earnings": overall_courier_earnings,
         }
 
         return pd.Series(data)

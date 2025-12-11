@@ -104,6 +104,8 @@ with tab_opt:
         oc_min_comp = st.checkbox("Enable min order completion rate")
         oc_min_take = st.checkbox("Enable min take rate (commission)")
         oc_max_take = st.checkbox("Enable max take rate (commission)")
+        oc_min_cearn = st.checkbox("Enable min courier earnings")
+        oc_max_cearn = st.checkbox("Enable max courier earnings")
         oc_min_icr  = st.checkbox("Enable min icr (used ONLY when optimizing for rpi)")
         oc_min_rpi  = st.checkbox("Enable min rpi (used ONLY when optimizing for icr)")
 
@@ -121,6 +123,14 @@ with tab_opt:
             overall_kwargs["min_take_rate"] = st.number_input(
                 "min_take_rate:", value=0.0, min_value=0.0, max_value=1.0
             )
+        if oc_max_take:
+            overall_kwargs["max_take_rate"] = st.number_input(
+                "max_take_rate:", value=1.0, min_value=0.0, max_value=1.0
+            )
+        if oc_min_cearn:
+            overall_kwargs["min_courier_earnings"] = st.number_input("min_courier_earnings:", value=0.0)
+        if oc_max_cearn:
+            overall_kwargs["max_courier_earnings"] = st.number_input("max_courier_earnings:", value=1000.0)
         if oc_max_take:
             overall_kwargs["max_take_rate"] = st.number_input(
                 "max_take_rate:", value=1.0, min_value=0.0, max_value=1.0

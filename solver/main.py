@@ -63,6 +63,24 @@ class PricingStrategyOptimizer:
             self.solver.Add(sum(convs) >= min_conv)
 
         # ----------------------------------
+        # Overall courier earnings constraint
+        # ----------------------------------
+
+        if (self.constraints.overall.min_courier_earnings is not None
+                or self.constraints.overall.max_courier_earnings is not None):
+            c_earnings = []
+            for b in range(self.dm.n_bins):
+                for i in range(self.dm.n_client):
+                    for j in range(self.dm.n_courier):
+                        c_earnings.append(self.dm.distance_weights[b] * self.dm.courier_payment[b][i][j] * self.x[b, i, j])
+
+            if self.constraints.overall.min_courier_earnings is not None:
+                self.solver.Add(sum(c_earnings) >= self.constraints.overall.min_courier_earnings)
+
+            if self.constraints.overall.max_courier_earnings is not None:
+                self.solver.Add(sum(c_earnings) <= self.constraints.overall.max_courier_earnings)
+
+        # ----------------------------------
         # Overall take rate constraint
         # ----------------------------------
 
@@ -204,6 +222,7 @@ class PricingStrategyOptimizer:
         overall_conv_opt = 0.0
         overall_take_rate_opt = 0.0
         overall_completion_rate_opt = 0.0
+        overall_courier_earnings_opt = 0.0
 
         # ----------------------------------
         # Optimal strategy rows
@@ -245,6 +264,7 @@ class PricingStrategyOptimizer:
                         overall_conv_opt += w * conv
                         overall_take_rate_opt += w * take
                         overall_completion_rate_opt += w * compl
+                        overall_courier_earnings_opt += w * courier_pay
 
         df = pd.DataFrame(rows, columns=[
             "Distance",
@@ -270,6 +290,7 @@ class PricingStrategyOptimizer:
         overall_conv_def = 0.0
         overall_take_rate_def = 0.0
         overall_completion_rate_def = 0.0
+        overall_courier_earnings_def = 0.0
 
         for b in range(self.dm.n_bins):
             w = self.dm.distance_weights[b]
@@ -279,12 +300,14 @@ class PricingStrategyOptimizer:
             conv_def = self.dm.client_conversion[b][zero_i]
             compl_def = self.dm.completion_rate[b][zero_i][zero_j]
             take_def = self.dm.take_rate[b][zero_i][zero_j]
+            courier_pay_def = self.dm.courier_payment[b][zero_i][zero_j]
 
             total_rpi_def += w * rpi_def
             total_icr_def += w * icr_def
             overall_conv_def += w * conv_def
             overall_take_rate_def += w * take_def
             overall_completion_rate_def += w * compl_def
+            overall_courier_earnings_def += w * courier_pay_def
 
         # ----------------------------------
         # Stats table (ONLY overall metrics)
@@ -295,21 +318,24 @@ class PricingStrategyOptimizer:
                 total_icr_opt,
                 overall_conv_opt,
                 overall_take_rate_opt,
-                overall_completion_rate_opt
+                overall_completion_rate_opt,
+                overall_courier_earnings_opt
             ],
             "Default Strategy": [
                 total_rpi_def,
                 total_icr_def,
                 overall_conv_def,
                 overall_take_rate_def,
-                overall_completion_rate_def
+                overall_completion_rate_def,
+                overall_courier_earnings_def
             ]
         }, index=[
             "Total weighted revenue (RPI)",
             "Total weighted intent→completed (ICR)",
             "Overall conversion rate",
             "Overall take rate",
-            "Overall completion rate"
+            "Overall completion rate",
+            "Overall courier earnings"
         ])
 
         # ----------------------------------
